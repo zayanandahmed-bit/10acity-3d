@@ -1,31 +1,252 @@
-/* 10ACITY 3D layer — additive only; the original page is untouched. */
+/* 10ACITY 3D journey — additive layer; the original page content is untouched.
+   Journey mode (html.j-on) turns the page's own sections into panels in a 3D world
+   that a camera flies through as you scroll. Classic mode (html.j-off) is the
+   normal page with light hover effects. */
+
+/* ---------- boot: hide the flat page until the journey is built (6s failsafe) ---------- */
+html:not(.j-on):not(.j-off) .elementor,
+html:not(.j-on):not(.j-off) .ekit-template-content-markup {
+  visibility: hidden;
+  animation: j-failsafe 0s linear 6s forwards;
+}
+@keyframes j-failsafe { to { visibility: visible; } }
+
+#j-loader {
+  position: fixed;
+  inset: 0;
+  z-index: 2147482000;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(ellipse at 50% 60%, #0f1f1e 0%, #0a0a0a 60%);
+  transition: opacity 0.9s ease, visibility 0.9s;
+}
+#j-loader .j-load-inner { display: grid; justify-items: center; gap: 26px; }
+#j-loader img { width: 190px; height: auto; opacity: 0.95; }
+#j-loader .j-load-bar { width: 190px; height: 2px; background: rgba(255, 255, 255, 0.08); overflow: hidden; border-radius: 2px; }
+#j-loader .j-load-bar i {
+  display: block;
+  height: 100%;
+  width: 100%;
+  transform-origin: 0 50%;
+  transform: scaleX(var(--p, 0.04));
+  background: linear-gradient(90deg, #1aafa7, #6ee7b7);
+  box-shadow: 0 0 12px rgba(26, 175, 167, 0.9);
+  transition: transform 0.35s ease;
+}
+#j-loader.j-done { opacity: 0; visibility: hidden; }
+html.j-off #j-loader { display: none; }
+
+/* ---------- journey stage ---------- */
+html.j-on { scroll-behavior: auto !important; }
+html.j-on body { overflow-x: hidden; }
 
 #fx-canvas {
   position: fixed;
   inset: 0;
-  width: 100vw;
-  height: 100vh;
-  z-index: -1;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
   pointer-events: none;
-  opacity: 0;
-  transition: opacity 1.6s ease;
 }
-#fx-canvas.fx-ready { opacity: 1; }
+
+#j-view {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  overflow: hidden;
+  overflow: clip;
+  pointer-events: none;
+}
+#j-cam {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-style: preserve-3d;
+  pointer-events: none;
+}
+#j-cam .j-p3d {
+  transform-style: preserve-3d;
+  position: static !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: visible !important;
+}
+#j-cam .j-sec {
+  position: absolute !important;
+  left: 0 !important;
+  top: 0 !important;
+  right: auto !important;
+  bottom: auto !important;
+  margin: 0 !important;
+  backface-visibility: hidden;
+  pointer-events: none;
+}
+#j-cam .j-sec.j-live { pointer-events: auto; }
+#j-scroll { width: 1px; pointer-events: none; }
+
+/* measure pass: the page flows normally inside the stage (JS strips the panel classes) */
+html.j-measure #j-cam { transform: none !important; width: 100% !important; height: auto !important; }
+
+/* the site header becomes a fixed HUD above the 3D world */
+html.j-on .ekit-template-content-header {
+  position: fixed !important;
+  top: 0;
+  left: 0;
+  width: 100%;
+  z-index: 40;
+}
+
+/* ---------- chapter HUD ---------- */
+#j-hud {
+  position: fixed;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 45;
+  font-family: Outfit, Raleway, sans-serif;
+  opacity: 0;
+  transition: opacity 0.8s ease;
+}
+html.j-intro-done #j-hud { opacity: 1; }
+#j-hud ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; }
+#j-hud button {
+  all: unset;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  transition: color 0.3s ease;
+}
+#j-hud button .l {
+  opacity: 0;
+  transform: translateX(8px);
+  transition: opacity 0.35s ease, transform 0.35s ease;
+  white-space: nowrap;
+}
+#j-hud button .n { font-variant-numeric: tabular-nums; font-size: 11px; opacity: 0; transition: opacity 0.35s ease; }
+#j-hud button::after {
+  content: '';
+  width: 18px;
+  height: 2px;
+  border-radius: 2px;
+  background: currentColor;
+  transition: width 0.35s ease, background 0.35s ease, box-shadow 0.35s ease;
+}
+/* only lines show while reading; names and numbers appear when the menu is hovered or focused */
+#j-hud:hover button .l,
+#j-hud:focus-within button .l { opacity: 1; transform: none; }
+#j-hud:hover button .n,
+#j-hud:focus-within button .n { opacity: 0.7; }
+#j-hud:hover::before,
+#j-hud:focus-within::before { opacity: 1; }
+#j-hud::before {
+  content: '';
+  position: absolute;
+  inset: -14px -10px -14px -24px;
+  border-radius: 14px;
+  background: rgba(10, 10, 10, 0.72);
+  border: 1px solid rgba(26, 175, 167, 0.18);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  opacity: 0;
+  transition: opacity 0.35s ease;
+  z-index: -1;
+}
+#j-hud button:hover,
+#j-hud button:focus-visible { color: #fff; }
+#j-hud button.on { color: #6ee7b7; }
+#j-hud button.on::after { width: 34px; background: #1aafa7; box-shadow: 0 0 10px rgba(26, 175, 167, 0.9); }
+@media (max-width: 1100px) { #j-hud { display: none; } }
+
+#j-progress {
+  position: fixed;
+  left: 0;
+  top: 0;
+  height: 2px;
+  width: 100%;
+  transform-origin: 0 50%;
+  transform: scaleX(0);
+  background: linear-gradient(90deg, #1aafa7, #6ee7b7);
+  box-shadow: 0 0 10px rgba(26, 175, 167, 0.8);
+  z-index: 2147481000;
+  pointer-events: none;
+}
+
+/* ---------- scroll hint ---------- */
+#j-hint {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  z-index: 45;
+  transform: translate(-50%, 12px);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-family: Outfit, Raleway, sans-serif;
+  font-size: 12px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.85);
+  padding: 10px 18px 10px 12px;
+  border-radius: 999px;
+  background: rgba(10, 10, 10, 0.6);
+  border: 1px solid rgba(26, 175, 167, 0.35);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.7s ease, transform 0.7s ease;
+}
+#j-hint.on { opacity: 1; transform: translate(-50%, 0); }
+#j-hint .m {
+  width: 20px;
+  height: 32px;
+  border: 1.5px solid rgba(110, 231, 183, 0.8);
+  border-radius: 12px;
+  position: relative;
+  box-shadow: 0 0 14px rgba(26, 175, 167, 0.35);
+}
+#j-hint .m i {
+  position: absolute;
+  left: 50%;
+  top: 6px;
+  width: 3px;
+  height: 7px;
+  margin-left: -1.5px;
+  border-radius: 2px;
+  background: #6ee7b7;
+  animation: j-wheel 1.6s ease-in-out infinite;
+}
+@keyframes j-wheel { 0% { transform: translateY(0); opacity: 1; } 70% { transform: translateY(11px); opacity: 0; } 100% { opacity: 0; } }
+
+/* ---------- panel contents assembling in 3D as you arrive ---------- */
+html.j-on .j-as.j-as-on {
+  transform:
+    perspective(1100px)
+    translate3d(calc((1 - var(--k, 1)) * var(--sx, 0) * 200px), calc((1 - var(--k, 1)) * 130px), calc((1 - var(--k, 1)) * -700px))
+    rotateX(calc((1 - var(--k, 1)) * 34deg + var(--rx, 0deg)))
+    rotateY(calc((1 - var(--k, 1)) * var(--sx, 0) * -30deg + var(--ry, 0deg)))
+    translateZ(var(--lift, 0px)) !important;
+  opacity: calc(0.28 + var(--k, 1) * 0.72);
+}
 
 /* ---------- 3D tilt cards ---------- */
 .fx-tilt {
   --rx: 0deg;
   --ry: 0deg;
   --lift: 0px;
-  transform: rotateX(var(--rx)) rotateY(var(--ry)) translateZ(var(--lift));
-  transform-style: preserve-3d;
+  transform: perspective(1000px) rotateX(var(--rx)) rotateY(var(--ry)) translateZ(var(--lift));
   transition: transform 0.7s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.7s ease;
-  will-change: transform;
 }
 .fx-tilt.fx-hover {
-  --lift: 24px;
+  --lift: 26px;
   transition: transform 0.12s linear, box-shadow 0.4s ease;
-  box-shadow: 0 30px 60px -20px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(26, 175, 167, 0.25), 0 0 40px -10px rgba(26, 175, 167, 0.35);
+  box-shadow: 0 30px 60px -20px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(26, 175, 167, 0.3), 0 0 46px -10px rgba(26, 175, 167, 0.45);
 }
 .fx-glare {
   position: absolute;
@@ -39,39 +260,6 @@
   z-index: 5;
 }
 .fx-tilt.fx-hover .fx-glare { opacity: 1; }
-
-/* children float above the card surface */
-.fx-tilt.fx-depth > * { transform: translateZ(0); transition: transform 0.7s cubic-bezier(0.2, 0.8, 0.2, 1); }
-.fx-tilt.fx-depth.fx-hover > *:not(.fx-glare) { transform: translateZ(38px); }
-.fx-tilt.fx-depth.fx-hover > *:first-child { transform: translateZ(60px); }
-
-/* ---------- 3D scroll reveal ---------- */
-.fx-reveal {
-  opacity: 0;
-  translate: 0 90px;
-  rotate: x 32deg;
-  transition: opacity 1s ease, translate 1.2s cubic-bezier(0.16, 1, 0.3, 1), rotate 1.2s cubic-bezier(0.16, 1, 0.3, 1);
-  transition-delay: var(--fx-d, 0s);
-  transform-origin: 50% 100%;
-}
-.fx-reveal.fx-in { opacity: 1; translate: 0 0; rotate: x 0deg; }
-
-/* ---------- hero depth ---------- */
-.fx-hero-text {
-  transform: rotateX(var(--hx, 0deg)) rotateY(var(--hy, 0deg));
-  transform-style: preserve-3d;
-  transition: transform 0.9s cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-.fx-hero-text h1 {
-  transform: translateZ(50px);
-  text-shadow:
-    calc(var(--sx, 0) * 1px) calc(var(--sy, 0) * 1px) 0 rgba(26, 175, 167, 0.22),
-    calc(var(--sx, 0) * 2px) calc(var(--sy, 0) * 2px) 0 rgba(26, 175, 167, 0.14),
-    calc(var(--sx, 0) * 3px) calc(var(--sy, 0) * 3px) 0 rgba(26, 175, 167, 0.09),
-    calc(var(--sx, 0) * 4px) calc(var(--sy, 0) * 4px) 0 rgba(26, 175, 167, 0.05),
-    calc(var(--sx, 0) * 6px) calc(var(--sy, 0) * 6px) 22px rgba(0, 0, 0, 0.6);
-  transition: text-shadow 0.4s ease;
-}
 
 /* ---------- magnetic buttons ---------- */
 .fx-magnet {
@@ -98,12 +286,7 @@
   border: 1.5px solid rgba(26, 175, 167, 0.8);
   box-shadow: 0 0 18px rgba(26, 175, 167, 0.35);
 }
-.fx-dot {
-  width: 6px;
-  height: 6px;
-  margin: -3px 0 0 -3px;
-  background: #3fe0c5;
-}
+.fx-dot { width: 6px; height: 6px; margin: -3px 0 0 -3px; background: #3fe0c5; }
 .fx-cursor.fx-big {
   width: 70px;
   height: 70px;
@@ -113,25 +296,9 @@
 }
 body.fx-has-cursor .fx-cursor, body.fx-has-cursor .fx-dot { opacity: 1; }
 
-/* ---------- scroll progress ---------- */
-.fx-progress {
-  position: fixed;
-  top: 0;
-  left: 0;
-  height: 2px;
-  width: 100%;
-  transform-origin: 0 50%;
-  transform: scaleX(0);
-  background: linear-gradient(90deg, #1aafa7, #6ee7b7);
-  box-shadow: 0 0 12px rgba(26, 175, 167, 0.8);
-  z-index: 2147483001;
-  pointer-events: none;
-}
-
 @media (hover: none), (prefers-reduced-motion: reduce) {
   .fx-cursor, .fx-dot { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .fx-reveal { opacity: 1; translate: none; rotate: none; transition: none; }
-  .fx-tilt, .fx-hero-text { transform: none !important; }
+  .fx-tilt { transform: none !important; }
 }
