@@ -111,19 +111,6 @@ function classic() {
 }
 
 /* =====================================================================
-   CSS 3D projection (same maths as three.js CSS3DRenderer)
-   ===================================================================== */
-const eps = (v) => (Math.abs(v) < 1e-10 ? 0 : v);
-function cameraCSS(m) {
-  const e = m.elements;
-  return `matrix3d(${eps(e[0])},${eps(-e[1])},${eps(e[2])},${eps(e[3])},${eps(e[4])},${eps(-e[5])},${eps(e[6])},${eps(e[7])},${eps(e[8])},${eps(-e[9])},${eps(e[10])},${eps(e[11])},${eps(e[12])},${eps(-e[13])},${eps(e[14])},${eps(e[15])})`;
-}
-function objectCSS(m) {
-  const e = m.elements;
-  return `translate(-50%,-50%)matrix3d(${eps(e[0])},${eps(e[1])},${eps(e[2])},${eps(e[3])},${eps(-e[4])},${eps(-e[5])},${eps(-e[6])},${eps(-e[7])},${eps(e[8])},${eps(e[9])},${eps(e[10])},${eps(e[11])},${eps(e[12])},${eps(e[13])},${eps(e[14])},${eps(e[15])})`;
-}
-
-/* =====================================================================
    Shared textures
    ===================================================================== */
 function glowTexture() {
@@ -174,8 +161,8 @@ function journey() {
 
   const mobile = innerWidth < 768;
   const cfg = mobile
-    ? { fov: 52, G: 1900, dx: 200, dy: -150, yaw: 7, arc: 90, bank: 3, warp: 6, T: 0.95, D: 0.28, look: 0 }
-    : { fov: 50, G: 2700, dx: 520, dy: -220, yaw: 11, arc: 140, bank: 4, warp: 8, T: 1.15, D: 0.32, look: 0.9 };
+    ? { fov: 52, G: 2000, dx: 320, dy: -180, yaw: 10, arc: 120, bank: 4, warp: 8, T: 1.0, D: 0.28, look: 0 }
+    : { fov: 50, G: 2900, dx: 900, dy: -260, yaw: 16, arc: 220, bank: 6, warp: 10, T: 1.2, D: 0.32, look: 0.9 };
 
   root.classList.add('j-on');
   history.scrollRestoration = 'manual';
@@ -345,9 +332,14 @@ function journey() {
       g.members.forEach((m) => {
         m.lx = m.left + m.w / 2 - W / 2;
         m.ly = g.H / 2 - (m.dy + m.h / 2);
-        const mat = new THREE.Matrix4().multiplyMatrices(g.M, new THREE.Matrix4().makeTranslation(m.lx, m.ly, 0));
+        // section pixels (origin top-left, y down) -> world
+        m.MS = new THREE.Matrix4().multiplyMatrices(g.M, new THREE.Matrix4().set(
+          1, 0, 0, m.lx - m.w / 2,
+          0, -1, 0, m.ly + m.h / 2,
+          0, 0, 1, 0,
+          0, 0, 0, 1));
+        m.css = '';
         m.s.style.width = m.w + 'px';
-        m.s.style.transform = objectCSS(mat);
       });
     });
 
@@ -1032,7 +1024,7 @@ function journey() {
 
   // never leave the visitor stranded mid-flight: finish the trip in the direction they were going
   function settle() {
-    if (auto || lockS !== null) return;
+    if (auto || lockS !== null || params.has('nosnap')) return;
     const sg = segAt(scrollY);
     if (sg.type !== 'fly') return;
     const t = (scrollY - sg.a) / (sg.b - sg.a);
@@ -1130,8 +1122,25 @@ function journey() {
   let introT0 = 0;
   let introDone = false;
   let started = false;
-  let lastCamCSS = '';
+  const PV = new THREE.Matrix4();
+  const T = new THREE.Matrix4();
+  const tmpV = new THREE.Vector3();
   let framed = false;
+  let checked = false;
+
+  // if the browser ever renders the hero somewhere other than full-size and flat in front of us,
+  // show the plain page rather than a broken one
+  function selfCheck() {
+    if (checked || !introDone || sCam > 2 || !groups.length) return;
+    checked = true;
+    const m = groups[0].members[0];
+    const r = m.s.getBoundingClientRect();
+    const ok = Math.abs(r.width - m.w) < m.w * 0.12 && Math.abs(r.left - m.left) < W * 0.12;
+    if (!ok) {
+      console.warn('[10acity 3d] projection check failed, showing the classic page', r.left, r.width, m.w);
+      if (!params.has('classic')) location.replace(location.pathname + '?classic=1');
+    }
+  }
   let frameError = false;
   const clock = new THREE.Clock();
 
@@ -1191,13 +1200,16 @@ function journey() {
     }
     camera.updateMatrixWorld();
 
-    // DOM camera
+    // DOM projection: camera space -> screen pixels, with the perspective divide carried in w.
+    // Each section gets its own complete matrix, so nothing relies on nested 3D contexts
+    // (some browsers and GPU setups flatten preserve-3d, which collapsed the journey).
     const Fnow = camera.projectionMatrix.elements[5] * vh / 2;
-    const css = `perspective(${Fnow}px) translateZ(${Fnow}px)${cameraCSS(camera.matrixWorldInverse)}translate(${W / 2}px,${vh / 2}px)`;
-    if (css !== lastCamCSS) {
-      cam.style.transform = css;
-      lastCamCSS = css;
-    }
+    PV.set(
+      1, 0, -W / (2 * Fnow), 0,
+      0, -1, -vh / (2 * Fnow), 0,
+      0, 0, 0, 1e-4,
+      0, 0, -1 / Fnow, 0,
+    ).multiply(camera.matrixWorldInverse);
 
     // which panels are visible, assembled, and present for their 3D props
     const op = new Array(groups.length).fill(0);
@@ -1211,9 +1223,9 @@ function journey() {
       readFrac = (sCam - sg.a) / Math.max(1, sg.b - sg.a);
     } else {
       const ft = (sCam - sg.a) / (sg.b - sg.a);
-      op[sg.g] = 1 - smooth(0.04, 0.3, ft);
-      op[sg.g + 1] = smooth(0.22, 0.62, ft);
-      as[sg.g + 1] = smooth(0.22, 1, ft);
+      op[sg.g] = 1 - smooth(0.1, 0.36, ft);
+      op[sg.g + 1] = smooth(0.26, 0.6, ft);
+      as[sg.g + 1] = smooth(0.3, 1, ft);
       pres[sg.g] = 1 - smooth(0.3, 0.95, ft);
       pres[sg.g + 1] = smooth(0.05, 0.7, ft);
     }
@@ -1232,12 +1244,36 @@ function journey() {
         g.op = o;
         g.members.forEach((m) => {
           m.s.style.opacity = o;
-          m.s.style.visibility = o > 0.002 ? 'visible' : 'hidden';
           m.s.classList.toggle('j-live', o > 0.9);
         });
       }
-      if (o > 0) applyAssembly(g, as[i]);
+      if (o > 0.002) {
+        // nearer panels stack above farther ones
+        const depth = Math.max(1, -tmpV.copy(g.pos).applyMatrix4(camera.matrixWorldInverse).z);
+        g.members.forEach((m) => {
+          T.multiplyMatrices(PV, m.MS);
+          const e = T.elements;
+          // w at the four corners; anything at or behind the eye is not drawn
+          const w0 = e[15], wu = e[3] * m.w, wv = e[7] * m.h;
+          const wMin = Math.min(w0, w0 + wu, w0 + wv, w0 + wu + wv);
+          const show = wMin > 0.04;
+          if (show) {
+            const css = 'matrix3d(' + e.map((v) => (Math.abs(v) < 1e-12 ? 0 : +v.toPrecision(10))).join(',') + ')';
+            if (css !== m.css) {
+              m.s.style.transform = css;
+              m.css = css;
+            }
+            m.s.style.zIndex = String(Math.round(1e7 / depth));
+          }
+          const vis = show ? 'visible' : 'hidden';
+          if (m.s.style.visibility !== vis) m.s.style.visibility = vis;
+        });
+        applyAssembly(g, as[i]);
+      } else {
+        g.members.forEach((m) => { if (m.s.style.visibility !== 'hidden') m.s.style.visibility = 'hidden'; });
+      }
     });
+    selfCheck();
 
     // WebGL camera = DOM camera + a little mouse parallax
     glCam.position.copy(camera.position);
@@ -1261,7 +1297,8 @@ function journey() {
       if (d.gIndex === 'gate') vis = flyVis0;
       else if (d.gIndex === 'pipe') {
         const gi = pipeline.g;
-        vis = Math.max(pres[gi], sg.type === 'fly' && sg.g === gi - 1 ? 1 : 0);
+        // bright while you ride it in, dimmed behind the form once you've arrived
+        vis = Math.max(pres[gi] * 0.35, sg.type === 'fly' && sg.g === gi - 1 ? 1 : 0);
       } else if (d.gIndex >= 0) vis = pres[d.gIndex];
       d.obj.visible = vis > 0.003;
       if (d.obj.visible) d.update?.(dt, t, vis);
@@ -1278,6 +1315,8 @@ function journey() {
     progress.style.transform = `scaleX(${total ? sCam / total : 0})`;
     hint.classList.toggle('on', introDone && scrollY < 40);
   }
+
+  if (params.has('debug')) window.__journey = { segs: () => segs, total: () => total };
 
   /* ---------- boot ---------- */
   layout(true);

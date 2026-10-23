@@ -37,7 +37,9 @@ html:not(.j-on):not(.j-off) .ekit-template-content-markup {
 html.j-off #j-loader { display: none; }
 
 /* ---------- journey stage ---------- */
-html.j-on { scroll-behavior: auto !important; }
+html.j-on { scroll-behavior: auto !important; scrollbar-width: none; }
+html.j-on::-webkit-scrollbar,
+html.j-on body::-webkit-scrollbar { width: 0; height: 0; display: none; }
 html.j-on body { overflow-x: hidden; }
 
 #fx-canvas {
@@ -61,11 +63,10 @@ html.j-on body { overflow-x: hidden; }
   position: absolute;
   left: 0;
   top: 0;
-  transform-style: preserve-3d;
   pointer-events: none;
 }
+/* wrappers between the stage and the sections must not offset or clip them */
 #j-cam .j-p3d {
-  transform-style: preserve-3d;
   position: static !important;
   margin: 0 !important;
   padding: 0 !important;
@@ -78,7 +79,7 @@ html.j-on body { overflow-x: hidden; }
   right: auto !important;
   bottom: auto !important;
   margin: 0 !important;
-  backface-visibility: hidden;
+  transform-origin: 0 0 !important;
   pointer-events: none;
 }
 #j-cam .j-sec.j-live { pointer-events: auto; }
@@ -94,6 +95,18 @@ html.j-on .ekit-template-content-header {
   left: 0;
   width: 100%;
   z-index: 40;
+}
+/* a soft fade behind the fixed header so content passing underneath stays legible */
+html.j-on .ekit-template-content-header::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 120px;
+  background: linear-gradient(to bottom, rgba(10, 10, 10, 0.88), rgba(10, 10, 10, 0.55) 55%, rgba(10, 10, 10, 0));
+  pointer-events: none;
+  z-index: -1;
 }
 
 /* ---------- chapter HUD ---------- */
